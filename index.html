@@ -920,6 +920,21 @@
   window.chatKey = e  => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); } };
   window.qpSend  = btn => { document.getElementById('chat-in').value = btn.textContent; sendMsg(); };
 
+  // OpenRouter AI — free models, no payment needed
+  const OR_KEY = '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';
+  const OR_URL = 'https://openrouter.ai/api/v1/chat/completions';
+
+  const SYSTEM_PROMPT = `You are SafeSpace Listener — a warm, empathetic mental health support companion built into the SafeSpace app.
+Your role:
+- Listen actively. Validate feelings without judgment.
+- Respond with genuine warmth and care, like a trusted friend.
+- Keep responses to 2-4 sentences unless more is needed.
+- Never diagnose or prescribe medication.
+- Ask one gentle follow-up question to help the person feel heard.
+- If someone mentions suicidal thoughts or self-harm: express care immediately, share Nigeria crisis helpline (0800 070 0800), and encourage them to reach out.
+- Always respond in English unless the user writes in another language.
+- You are not a therapist. You are a caring listener.`;
+
   window.sendMsg = async () => {
     const inp  = document.getElementById('chat-in');
     const text = inp.value.trim(); if (!text) return;
@@ -929,32 +944,46 @@
     chatHist.push({ role: 'user', content: text });
     showTyping(true);
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
+      const res = await fetch(OR_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + OR_KEY,
+          'HTTP-Referer': 'https://safespace-app.com',
+          'X-Title': 'SafeSpace'
+        },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
+          model: 'meta-llama/llama-3.2-3b-instruct:free',
+          messages: [
+            { role: 'system', content: SYSTEM_PROMPT },
+            ...chatHist
+          ],
           max_tokens: 512,
-          system: `You are SafeSpace Listener — a warm, empathetic mental health support companion.
-Your role:
-- Listen actively. Validate feelings. Never judge.
-- Respond with genuine warmth, like a trusted friend.
-- Keep responses to 2–4 sentences unless more is needed.
-- Never diagnose or prescribe medication.
-- Ask one gentle follow-up question to help the person feel heard.
-- If someone mentions suicidal thoughts or self-harm: express care immediately and share Nigeria's crisis helpline (0800 070 0800).
-- Always respond in English unless the user writes in another language.`,
-          messages: chatHist
+          temperature: 0.8
         })
       });
-      if (!res.ok) throw new Error('API error ' + res.status);
-      const data  = await res.json();
-      const reply = data.content?.[0]?.text || "I'm here with you. Can you tell me more about what you're feeling?";
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        console.error('OpenRouter error:', JSON.stringify(data));
+        throw new Error(data.error?.message || 'API error ' + res.status);
+      }
+
+      const reply = data.choices?.[0]?.message?.content;
+      if (!reply) {
+        console.error('Unexpected response:', JSON.stringify(data));
+        throw new Error('Empty response from AI');
+      }
+
       chatHist.push({ role: 'assistant', content: reply });
-      showTyping(false); appendMsg('ai', reply);
+      showTyping(false);
+      appendMsg('ai', reply);
+
     } catch(e) {
-      console.error(e); showTyping(false);
-      appendMsg('ai', "I'm here for you. I had a small connection issue — please try again in a moment. You are not alone.");
+      console.error('OpenRouter error:', e.message);
+      showTyping(false);
+      appendMsg('ai', "I\'m here for you. I had a small connection issue — please try again in a moment. You are not alone.");
     }
     btn.disabled = false;
   };
